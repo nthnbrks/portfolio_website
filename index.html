@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Nathan Brooks - Interactive Portfolio</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            background: #62a0ea;
+            cursor: default;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+
+        #ui-overlay h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        #ui-overlay p {
+            font-size: 1.2em;
+            max-width: 400px;
+        }
+
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            z-index: 100;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.5em;
+            z-index: 300;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        #fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: #00ff00;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 16px;
+            z-index: 200;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading meadow environment...</div>
+
+    <div id="ui-overlay">
+        <h1>Nathan Brooks</h1>
+    </div>
+
+    <div id="fps-counter">FPS: --</div>
+
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+
+        // Create beautiful skybox with procedural gradient
+        const skyCanvas = document.createElement('canvas');
+        skyCanvas.width = 512;
+        skyCanvas.height = 512;
+        const skyCtx = skyCanvas.getContext('2d');
+
+        // Create radial gradient for more realistic sky
+        const skyGradient = skyCtx.createLinearGradient(0, 0, 0, 512);
+
+        // Beautiful day sky colors - horizon to zenith
+        skyGradient.addColorStop(0, '#1a5fb4');    // Deep blue at zenith
+        skyGradient.addColorStop(0.3, '#3584e4');  // Mid blue
+        skyGradient.addColorStop(0.6, '#62a0ea');  // Light blue
+        skyGradient.addColorStop(0.85, '#99c1f1'); // Very light blue near horizon
+        skyGradient.addColorStop(1, '#e3f3ff');    // Almost white at horizon
+
+        skyCtx.fillStyle = skyGradient;
+        skyCtx.fillRect(0, 0, 512, 512);
+
+        // Add some subtle cloud-like texture
+        skyCtx.globalAlpha = 0.08;
+        for (let i = 0; i < 100; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 300 + 200; // More clouds near horizon
+            const size = Math.random() * 40 + 20;
+            skyCtx.fillStyle = '#ffffff';
+            skyCtx.beginPath();
+            skyCtx.arc(x, y, size, 0, Math.PI * 2);
+            skyCtx.fill();
+        }
+        skyCtx.globalAlpha = 1.0;
+
+        const skyTexture = new THREE.CanvasTexture(skyCanvas);
+        skyTexture.minFilter = THREE.LinearFilter;
+        skyTexture.magFilter = THREE.LinearFilter;
+
+        const skyGeometry = new THREE.SphereGeometry(500, 60, 40);
+        const skyMaterial = new THREE.MeshBasicMaterial({
+            map: skyTexture,
+            side: THREE.BackSide,
+            fog: false
+        });
+        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        scene.add(sky);
+
+        // Lighter fog to match the prettier sky
+        scene.fog = new THREE.Fog(0xb8d4f0, 30, 90);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        const renderer = new THREE.WebGLRenderer({
+            antialias: true
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setClearColor(0x62a0ea);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Camera state
+        let currentLocation = 'hub';
+        let targetRotation = { x: 0, y: 0 };
+        let currentRotation = { x: 0, y: 0 };
+        const maxVerticalAngle = Math.PI / 4;
+
+        // Camera positions - repositioned to look AT content properly
+        const cameraPositions = {
+            hub: { pos: new THREE.Vector3(0, 2.5, 12), lookAt: new THREE.Vector3(0, 2, 0) },
+            projects: { pos: new THREE.Vector3(-18, 2.5, 0), lookAt: new THREE.Vector3(-18, 2, -10) },
+            writing: { pos: new THREE.Vector3(18, 2.5, 0), lookAt: new THREE.Vector3(18, 2, -10) },
+            qualifications: { pos: new THREE.Vector3(0, 2.5, -25), lookAt: new THREE.Vector3(0, 2, -35) },
+            aboutme: { pos: new THREE.Vector3(0, 2.5, 25), lookAt: new THREE.Vector3(0, 2, 15) }
+        };
+
+        camera.position.copy(cameraPositions.hub.pos);
+        camera.lookAt(cameraPositions.hub.lookAt);
+
+        // Mouse movement
+        let mouseX = 0;
+        let mouseY = 0;
+        let isTransitioning = false;
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX / window.innerWidth - 0.5) * 2;
+            mouseY = (event.clientY / window.innerHeight - 0.5) * 2;
+
+            targetRotation.y = -mouseX * Math.PI * 0.15;
+            targetRotation.x = -mouseY * Math.PI * 0.1;
+            targetRotation.x = Math.max(-maxVerticalAngle, Math.min(maxVerticalAngle, targetRotation.x));
+        });
+
+        // Lighting - brighter for better image visibility
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffee, 1.5);
+        sunLight.position.set(50, 50, 20);
+        sunLight.castShadow = true;
+        // Reduced shadow map size for better performance
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.camera.far = 150;
+        sunLight.shadow.camera.left = -80;
+        sunLight.shadow.camera.right = 80;
+        sunLight.shadow.camera.top = 80;
+        sunLight.shadow.camera.bottom = -80;
+        scene.add(sunLight);
+
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        fillLight.position.set(-30, 20, 30);
+        scene.add(fillLight);
+
+        // Ground
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshStandardMaterial({
+            color: 0x3d6b42,
+            roughness: 0.9,
+            metalness: 0.1
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Dense grass
+        const grassBladesGroup = new THREE.Group();
+
+        function createGrassBlade(x, z) {
+            const height = 0.3 + Math.random() * 0.4;
+            const geometry = new THREE.ConeGeometry(0.02, height, 3);
+            geometry.translate(0, height / 2, 0);
+
+            const material = new THREE.MeshStandardMaterial({
+                color: new THREE.Color().setHSL(0.25 + Math.random() * 0.1, 0.6, 0.3 + Math.random() * 0.2),
+                flatShading: true
+            });
+
+            const blade = new THREE.Mesh(geometry, material);
+            blade.position.set(x, 0, z);
+            blade.rotation.y = Math.random() * Math.PI * 2;
+            blade.castShadow = true;
+
+            blade.userData.baseRotation = blade.rotation.clone();
+            blade.userData.windPhase = Math.random() * Math.PI * 2;
+            blade.userData.windSpeed = 0.5 + Math.random() * 0.5;
+
+            return blade;
+        }
+
+        // Reduced grass count for better performance
+        for (let i = 0; i < 1500; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = Math.random() * 70;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+
+            const blade = createGrassBlade(x, z);
+            grassBladesGroup.add(blade);
+        }
+        scene.add(grassBladesGroup);
+
+        // Clouds
+        const clouds = [];
+
+        function createCloud(x, y, z) {
+            const cloudGroup = new THREE.Group();
+
+            for (let i = 0; i < 5; i++) {
+                const geometry = new THREE.SphereGeometry(2 + Math.random() * 2, 8, 8);
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.8,
+                    flatShading: true
+                });
+                const sphere = new THREE.Mesh(geometry, material);
+                sphere.position.x = (Math.random() - 0.5) * 6;
+                sphere.position.y = (Math.random() - 0.5) * 2;
+                sphere.position.z = (Math.random() - 0.5) * 3;
+                cloudGroup.add(sphere);
+            }
+
+            cloudGroup.position.set(x, y, z);
+            cloudGroup.userData.speed = 0.01 + Math.random() * 0.02;
+
+            return cloudGroup;
+        }
+
+        // Reduced cloud count for better performance
+        for (let i = 0; i < 6; i++) {
+            const x = (Math.random() - 0.5) * 100;
+            const y = 20 + Math.random() * 15;
+            const z = (Math.random() - 0.5) * 100;
+            const cloud = createCloud(x, y, z);
+            clouds.push(cloud);
+            scene.add(cloud);
+        }
+
+        // Interactive objects with hitboxes
+        const interactiveObjects = [];
+        let hoveredObject = null;
+        let font = null;
+
+        const fontLoader = new FontLoader();
+        const textureLoader = new THREE.TextureLoader();
+
+        fontLoader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (loadedFont) => {
+            font = loadedFont;
+            createAllText();
+        });
+
+        function createImagePanel(imagePath, width, height, x, y, z, linkUrl = null) {
+            const texture = textureLoader.load(imagePath);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+            const panel = new THREE.Mesh(
+                new THREE.PlaneGeometry(width, height),
+                new THREE.MeshBasicMaterial({
+                    map: texture,
+                    transparent: true,
+                    alphaTest: 0.1
+                })
+            );
+            panel.position.set(x, y, z);
+
+            if (linkUrl) {
+                const hitbox = new THREE.Mesh(
+                    new THREE.BoxGeometry(width, height, 0.2),
+                    new THREE.MeshBasicMaterial({ visible: false })
+                );
+                hitbox.position.set(x, y, z);
+                hitbox.userData = { type: 'externallink', url: linkUrl };
+                return { panel, hitbox };
+            }
+
+            return { panel };
+        }
+
+        function createArticlePanel(title, description, width, height, x, y, z) {
+            const bgPanel = new THREE.Mesh(
+                new THREE.PlaneGeometry(width, height),
+                new THREE.MeshBasicMaterial({
+                    color: 0x000000,
+                    transparent: true,
+                    opacity: 0.8,
+                    depthWrite: false
+                })
+            );
+            bgPanel.position.set(x, y, z + 0.05);
+
+            const textGroup = new THREE.Group();
+            textGroup.position.set(x, y, z + 0.06);
+            if (!font) return { bgPanel, textGroup };
+
+            const titleLines = wrapText(title, 20);
+            let yOffset = height / 2 - 0.4;
+
+            titleLines.forEach((line, i) => {
+                const geo = new TextGeometry(line, { font: font, size: 0.18, height: 0.01 });
+                geo.computeBoundingBox();
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 1,
+                    depthWrite: false
+                }));
+                mesh.position.set(-(geo.boundingBox.max.x - geo.boundingBox.min.x) / 2, yOffset - i * 0.22, 0);
+                textGroup.add(mesh);
+            });
+
+            yOffset -= titleLines.length * 0.22 + 0.2;
+            const descLines = wrapText(description, 28);
+
+            for (let i = 0; i < Math.min(descLines.length, 4); i++) {
+                const geo = new TextGeometry(descLines[i], { font: font, size: 0.11, height: 0.01 });
+                geo.computeBoundingBox();
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+                    color: 0xcccccc,
+                    transparent: true,
+                    opacity: 1,
+                    depthWrite: false
+                }));
+                mesh.position.set(-(geo.boundingBox.max.x - geo.boundingBox.min.x) / 2, yOffset - i * 0.13, 0);
+                textGroup.add(mesh);
+            }
+
+            return { bgPanel, textGroup };
+        }
+
+        // Function to create text panel (rectangular background with text)
+        function createTextPanel(text, width, height, x, y, z, bgColor = 0x333333, textColor = 0xffffff, fontSize = 0.15) {
+            // Background panel
+            const bgGeometry = new THREE.PlaneGeometry(width, height);
+            const bgMaterial = new THREE.MeshStandardMaterial({
+                color: bgColor,
+                side: THREE.DoubleSide,
+                emissive: bgColor,
+                emissiveIntensity: 0.2
+            });
+            const bgPanel = new THREE.Mesh(bgGeometry, bgMaterial);
+            bgPanel.position.set(x, y, z);
+
+            // Text on panel
+            if (font) {
+                const lines = wrapText(text, 40); // Wrap text to fit panel width
+                const lineHeight = fontSize * 1.5;
+                const startY = y + (lines.length * lineHeight) / 2 - lineHeight / 2;
+
+                const textGroup = new THREE.Group();
+                lines.forEach((line, i) => {
+                    const textGeometry = new TextGeometry(line, {
+                        font: font,
+                        size: fontSize,
+                        height: 0.02,
+                        curveSegments: 8
+                    });
+                    textGeometry.computeBoundingBox();
+                    const centerOffset = -0.5 * (textGeometry.boundingBox.max.x - textGeometry.boundingBox.min.x);
+                    textGeometry.translate(centerOffset, 0, 0);
+
+                    const textMaterial = new THREE.MeshStandardMaterial({
+                        color: textColor,
+                        emissive: textColor,
+                        emissiveIntensity: 0.5
+                    });
+                    const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                    textMesh.position.set(x, startY - (i * lineHeight), z + 0.02);
+                    textGroup.add(textMesh);
+                });
+
+                return { bgPanel, textGroup };
+            }
+
+            return { bgPanel };
+        }
+
+        // Helper function to wrap text
+        function wrapText(text, maxChars) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            words.forEach(word => {
+                if ((currentLine + word).length <= maxChars) {
+                    currentLine += (currentLine ? ' ' : '') + word;
+                } else {
+                    if (currentLine) lines.push(currentLine);
+                    currentLine = word;
+                }
+            });
+            if (currentLine) lines.push(currentLine);
+
+            return lines;
+        }
+
+        function create3DText(text, x, y, z, color, size = 0.6, lookAtCamera = true) {
+            if (!font) return null;
+
+            const textGeometry = new TextGeometry(text, {
+                font: font,
+                size: size,
+                height: 0.2,
+                curveSegments: 12,
+                bevelEnabled: true,
+                bevelThickness: 0.04,
+                bevelSize: 0.03,
+                bevelOffset: 0,
+                bevelSegments: 5
+            });
+
+            textGeometry.computeBoundingBox();
+            const centerOffset = -0.5 * (textGeometry.boundingBox.max.x - textGeometry.boundingBox.min.x);
+            textGeometry.translate(centerOffset, 0, 0);
+
+            const materials = [
+                new THREE.MeshStandardMaterial({
+                    color: color,
+                    metalness: 0.4,
+                    roughness: 0.3,
+                    emissive: new THREE.Color(color),
+                    emissiveIntensity: 0.5
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(color).multiplyScalar(0.8),
+                    metalness: 0.4,
+                    roughness: 0.5,
+                    emissive: new THREE.Color(color),
+                    emissiveIntensity: 0.3
+                })
+            ];
+
+            const textMesh = new THREE.Mesh(textGeometry, materials);
+            textMesh.position.set(x, y, z);
+
+            if (lookAtCamera) {
+                textMesh.lookAt(cameraPositions.hub.pos);
+            }
+
+            textMesh.castShadow = true;
+            textMesh.receiveShadow = true;
+
+            // Create invisible hitbox for better clicking
+            const bbox = textGeometry.boundingBox;
+            const width = bbox.max.x - bbox.min.x;
+            const height = bbox.max.y - bbox.min.y;
+            const depth = bbox.max.z - bbox.min.z;
+
+            const hitboxGeometry = new THREE.BoxGeometry(width + 0.2, height + 0.2, depth + 0.4);
+            const hitboxMaterial = new THREE.MeshBasicMaterial({
+                transparent: true,
+                opacity: 0,
+                visible: false
+            });
+            const hitbox = new THREE.Mesh(hitboxGeometry, hitboxMaterial);
+            hitbox.position.copy(textMesh.position);
+            hitbox.rotation.copy(textMesh.rotation);
+
+            hitbox.userData = {
+                type: text.toLowerCase().replace(/\s+/g, ''),
+                baseY: y,
+                floatOffset: Math.random() * Math.PI * 2,
+                textMesh: textMesh
+            };
+
+            scene.add(textMesh);
+            scene.add(hitbox);
+            interactiveObjects.push(hitbox);
+
+            return { textMesh, hitbox };
+        }
+
+        let backButton3D = null;
+
+        function createAllText() {
+            // Hub navigation - Quadrant layout with minimal yaw
+            // Left column - slight clockwise rotation
+            const leftYaw = 0.05; // Very slight angle
+            // Right column - slight counterclockwise rotation
+            const rightYaw = -0.05;
+
+            // Top left: About Me
+            const aboutMe = create3DText('About Me', -2.5, 3.2, 8, 0xffb87a, 0.6);
+            if (aboutMe) {
+                aboutMe.textMesh.rotation.set(0, leftYaw, 0);
+                aboutMe.hitbox.rotation.set(0, leftYaw, 0);
+            }
+
+            // Top right: Qualifications
+            const quals = create3DText('Qualifications', 2.5, 3.2, 8, 0xf5a157, 0.6);
+            if (quals) {
+                quals.textMesh.rotation.set(0, rightYaw, 0);
+                quals.hitbox.rotation.set(0, rightYaw, 0);
+            }
+
+            // Bottom left: Projects
+            const projects = create3DText('Projects', -2.5, 2, 8, 0x5fa876, 0.7);
+            if (projects) {
+                projects.textMesh.rotation.set(0, leftYaw, 0);
+                projects.hitbox.rotation.set(0, leftYaw, 0);
+            }
+
+            // Bottom right: Writing
+            const writing = create3DText('Writing', 2.5, 2, 8, 0x7ab8d4, 0.7);
+            if (writing) {
+                writing.textMesh.rotation.set(0, rightYaw, 0);
+                writing.hitbox.rotation.set(0, rightYaw, 0);
+            }
+
+            // GitHub and LinkedIn logos - full color, no borders, minimal yaw
+            const githubTexture = textureLoader.load('pics/github.png');
+            const githubGeometry = new THREE.PlaneGeometry(0.8, 0.8);
+            const githubMaterial = new THREE.MeshStandardMaterial({
+                map: githubTexture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                alphaTest: 0.1,
+                emissive: 0x000000,
+                emissiveIntensity: 0
+            });
+            const githubMesh = new THREE.Mesh(githubGeometry, githubMaterial);
+            githubMesh.position.set(-1.2, 0.9, 9);
+            githubMesh.rotation.set(0, leftYaw, 0);
+            scene.add(githubMesh);
+
+            const githubHitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.8, 0.2),
+                new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, visible: false })
+            );
+            githubHitbox.position.copy(githubMesh.position);
+            githubHitbox.rotation.copy(githubMesh.rotation);
+            githubHitbox.userData = {
+                type: 'externallink',
+                url: 'https://github.com/nthnbrks',
+                panel: githubMesh
+            };
+            scene.add(githubHitbox);
+            interactiveObjects.push(githubHitbox);
+
+            const linkedinTexture = textureLoader.load('pics/linkedin2.png');
+            const linkedinGeometry = new THREE.PlaneGeometry(0.8, 0.8);
+            const linkedinMaterial = new THREE.MeshStandardMaterial({
+                map: linkedinTexture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                alphaTest: 0.1,
+                emissive: 0x000000,
+                emissiveIntensity: 0
+            });
+            const linkedinMesh = new THREE.Mesh(linkedinGeometry, linkedinMaterial);
+            linkedinMesh.position.set(1.2, 0.9, 9);
+            linkedinMesh.rotation.set(0, rightYaw, 0);
+            scene.add(linkedinMesh);
+
+            const linkedinHitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.8, 0.2),
+                new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, visible: false })
+            );
+            linkedinHitbox.position.copy(linkedinMesh.position);
+            linkedinHitbox.rotation.copy(linkedinMesh.rotation);
+            linkedinHitbox.userData = {
+                type: 'externallink',
+                url: 'https://www.linkedin.com/in/nthnbrks/',
+                panel: linkedinMesh
+            };
+            scene.add(linkedinHitbox);
+            interactiveObjects.push(linkedinHitbox);
+
+            // Back button - very small size
+            const backGeo = new TextGeometry('← Back', {
+                font: font,
+                size: 0.15,
+                height: 0.06,
+                curveSegments: 12,
+                bevelEnabled: true,
+                bevelThickness: 0.01,
+                bevelSize: 0.008,
+                bevelSegments: 5
+            });
+            backGeo.center();
+
+            const backMat = new THREE.MeshStandardMaterial({
+                color: 0x5fa876,
+                metalness: 0.4,
+                roughness: 0.3,
+                emissive: 0x5fa876,
+                emissiveIntensity: 0.5
+            });
+
+            backButton3D = new THREE.Mesh(backGeo, backMat);
+            backButton3D.castShadow = true;
+
+            // Hitbox for back button
+            backGeo.computeBoundingBox();
+            const bbox = backGeo.boundingBox;
+            const backHitboxGeo = new THREE.BoxGeometry(
+                bbox.max.x - bbox.min.x + 0.2,
+                bbox.max.y - bbox.min.y + 0.2,
+                bbox.max.z - bbox.min.z + 0.4
+            );
+            const backHitbox = new THREE.Mesh(backHitboxGeo, new THREE.MeshBasicMaterial({
+                transparent: true,
+                opacity: 0,
+                visible: false
+            }));
+
+            backHitbox.userData = {
+                type: 'backtohub',
+                baseY: 2,
+                floatOffset: 5,
+                textMesh: backButton3D
+            };
+            backHitbox.visible = false;
+            backButton3D.visible = false;
+
+            scene.add(backButton3D);
+            scene.add(backHitbox);
+            interactiveObjects.push(backHitbox);
+
+            createContentAreas();
+        }
+
+        function updateBackButtonPosition() {
+            if (!backButton3D) return;
+
+            const backHitbox = interactiveObjects.find(obj => obj.userData.type === 'backtohub');
+
+            if (currentLocation === 'projects') {
+                backButton3D.position.set(-18, 0.8, -1);
+                // Look at same Y level to avoid tilting upward
+                backButton3D.lookAt(new THREE.Vector3(-18, 0.8, 0));
+                backButton3D.visible = true;
+                if (backHitbox) {
+                    backHitbox.position.copy(backButton3D.position);
+                    backHitbox.rotation.copy(backButton3D.rotation);
+                    backHitbox.visible = true;
+                }
+            } else if (currentLocation === 'writing') {
+                backButton3D.position.set(18, 0.8, -1);
+                // Look at same Y level to avoid tilting upward
+                backButton3D.lookAt(new THREE.Vector3(18, 0.8, 0));
+                backButton3D.visible = true;
+                if (backHitbox) {
+                    backHitbox.position.copy(backButton3D.position);
+                    backHitbox.rotation.copy(backButton3D.rotation);
+                    backHitbox.visible = true;
+                }
+            } else if (currentLocation === 'qualifications') {
+                backButton3D.position.set(0, 0.8, -26);
+                // Look at same Y level to avoid tilting upward
+                backButton3D.lookAt(new THREE.Vector3(0, 0.8, -25));
+                backButton3D.visible = true;
+                if (backHitbox) {
+                    backHitbox.position.copy(backButton3D.position);
+                    backHitbox.rotation.copy(backButton3D.rotation);
+                    backHitbox.visible = true;
+                }
+            } else if (currentLocation === 'aboutme') {
+                backButton3D.position.set(0, 0.8, 24);
+                // Look at same Y level to avoid tilting upward
+                backButton3D.lookAt(new THREE.Vector3(0, 0.8, 25));
+                backButton3D.visible = true;
+                if (backHitbox) {
+                    backHitbox.position.copy(backButton3D.position);
+                    backHitbox.rotation.copy(backButton3D.rotation);
+                    backHitbox.visible = true;
+                }
+            } else {
+                backButton3D.visible = false;
+                if (backHitbox) backHitbox.visible = false;
+            }
+        }
+
+        // Content areas - properly positioned IN FRONT of camera
+        let projectsGroup, writingGroup, qualificationsGroup, aboutMeGroup;
+
+        function createContentAreas() {
+            // Projects area - BIGGER panels, higher Y positions
+            projectsGroup = new THREE.Group();
+            projectsGroup.position.set(-18, 0, -10);
+            scene.add(projectsGroup);
+
+            const projTitle = create3DText('PROJECTS', 0, 6.5, 0, 0x5fa876, 1.2, false);
+            if (projTitle) {
+                projectsGroup.add(projTitle.textMesh);
+                projectsGroup.add(projTitle.hitbox);
+                projTitle.textMesh.updateMatrixWorld();
+                projTitle.textMesh.lookAt(cameraPositions.projects.pos);
+                projTitle.hitbox.lookAt(cameraPositions.projects.pos);
+                interactiveObjects.splice(interactiveObjects.indexOf(projTitle.hitbox), 1);
+            }
+
+            // Project 1: This Website
+            const proj1Title = create3DText('This Website', -4.5, 4.8, 0, 0x7fbf9e, 0.6, false);
+            if (proj1Title) {
+                projectsGroup.add(proj1Title.textMesh);
+                proj1Title.textMesh.updateMatrixWorld();
+                proj1Title.textMesh.lookAt(cameraPositions.projects.pos);
+            }
+            const proj1Panel = createTextPanel(
+                "Yeah that's right. This friggin' website! It's pretty cool, isn't it?",
+                6, 1.8, -4.5, 3.5, 0, 0x2a4a3a, 0xffffff, 0.18
+            );
+            if (proj1Panel.bgPanel) {
+                projectsGroup.add(proj1Panel.bgPanel);
+                proj1Panel.bgPanel.lookAt(cameraPositions.projects.pos);
+            }
+            if (proj1Panel.textGroup) {
+                projectsGroup.add(proj1Panel.textGroup);
+                proj1Panel.textGroup.children.forEach(child => {
+                    child.lookAt(cameraPositions.projects.pos);
+                });
+            }
+
+            // Project 2: Chess Engine
+            const proj2Title = create3DText('Chess Engine', 4.5, 4.8, 0, 0x7fbf9e, 0.6, false);
+            if (proj2Title) {
+                projectsGroup.add(proj2Title.textMesh);
+                proj2Title.textMesh.updateMatrixWorld();
+                proj2Title.textMesh.lookAt(cameraPositions.projects.pos);
+            }
+            const proj2Panel = createTextPanel(
+                "Planned next project. Will use machine learning to create a chess bot with adaptive play mode.",
+                6, 2, 4.5, 3.4, 0, 0x2a4a3a, 0xffffff, 0.18
+            );
+            if (proj2Panel.bgPanel) {
+                projectsGroup.add(proj2Panel.bgPanel);
+                proj2Panel.bgPanel.lookAt(cameraPositions.projects.pos);
+            }
+            if (proj2Panel.textGroup) {
+                projectsGroup.add(proj2Panel.textGroup);
+                proj2Panel.textGroup.children.forEach(child => {
+                    child.lookAt(cameraPositions.projects.pos);
+                });
+            }
+
+            projectsGroup.visible = false;
+
+            // Writing area - Grid of all 11 articles (4 COLUMNS, NO TILT)
+            writingGroup = new THREE.Group();
+            writingGroup.position.set(18, 0, -10);
+            scene.add(writingGroup);
+
+            const writeTitle = create3DText('WRITING PORTFOLIO', 0, 8.5, 3, 0x7ab8d4, 0.9, false);
+            if (writeTitle) {
+                writingGroup.add(writeTitle.textMesh);
+                writeTitle.textMesh.updateMatrixWorld();
+                writeTitle.textMesh.rotation.x = 0.2; // Angle slightly downwards
+            }
+
+            // ALL 11 writing articles in a 4-column grid (3 rows: 4, 4, 3)
+            const articles = [
+                {
+                    title: 'Party at the End of Meaning',
+                    img: 'pics/partyattheendofmeaning.png',
+                    desc: 'My first print article. This was such a joy to produce and really threw me through the ropes of creating written work of a quality worth paying for.',
+                    url: 'partyattheendofmeaning.html'
+                },
+                {
+                    title: 'The Renaissance Man',
+                    img: 'pics/therenaissanceman.png',
+                    desc: 'A really fun passion piece about a concept that I find very important and fascinating.',
+                    url: 'therenaissanceman.html'
+                },
+                {
+                    title: 'Convenient Vinyl',
+                    img: 'pics/convenientvinyl.png',
+                    desc: 'Fun little editorial over a form of art that I care about.',
+                    url: 'https://www.thealinemag.com/new-articles/convenient-vinyl'
+                },
+                {
+                    title: 'Instructions for Juggling',
+                    img: 'pics/instructionsforjuggling.png',
+                    desc: 'An attempt at a less structured and slightly more creative style of writing.',
+                    url: 'https://www.thealinemag.com/lifestyle-1/instructions-for-juggling'
+                },
+                {
+                    title: 'Do the Ends Justify the Means?',
+                    img: 'pics/dotheendsjustifythemeans.png',
+                    desc: 'Short analysis of some themes from a movie I quite like.',
+                    url: 'https://www.thealinemag.com/opinion/do-the-ends-justify-the-means'
+                },
+                {
+                    title: 'How to Convey the Truth',
+                    img: 'pics/howtoconveythetruth.png',
+                    desc: 'A quick look into one of my favorite artists and what makes his work so special.',
+                    url: 'https://www.thealinemag.com/entertainment-socialmedia/how-to-convey-the-truth'
+                },
+                {
+                    title: 'Games of Love',
+                    img: 'pics/gamesoflove.png',
+                    desc: 'An editorial piece on the psychology of dating apps in modern culture.',
+                    url: 'https://www.thealinemag.com/new-blog-2/games-of-love'
+                },
+                {
+                    title: 'Passive Consumption',
+                    img: 'pics/passiveconsumption.png',
+                    desc: 'A dive into the psychological harm of new forms of social media consumption.',
+                    url: 'https://www.thealinemag.com/new-blog-2/passiveconsumption'
+                },
+                {
+                    title: 'Turn Off the CoComelon',
+                    img: 'pics/turnoffthecocomelon.png',
+                    desc: 'A longer editorial into the dangers of internet-media consumption for young children.',
+                    url: 'https://www.thealinemag.com/new-blog-2/internet-child-development'
+                },
+                {
+                    title: 'The Language of Clothing',
+                    img: 'pics/thelanguageofclothing.png',
+                    desc: 'I write for a fashion magazine, and yet this is the only article I\'ve ever written about fashion.',
+                    url: 'https://www.thealinemag.com/style/language-of-clothing'
+                },
+                {
+                    title: 'Reaching New Heights',
+                    img: 'pics/reachingnewheights.png',
+                    desc: 'The first article I ever wrote. I had no idea what I was doing but obviously I had fun or else I wouldn\'t still be doing this.',
+                    url: 'https://www.thealinemag.com/opinion/tamu-veo'
+                }
+            ];
+
+            // Create 6-column x 2-row grid with curve wrapping around camera
+            const gridSpacingY = 3.6;
+            const startY = 5.4;
+            const baseZ = 3;
+            const referenceGap = 3.4;  // Gap between columns 3 and 4 (indices 2 and 3)
+
+            // Pre-calculate Z depths for each column - gentler curve
+            const colZDepths = [];
+            for (let i = 0; i < 6; i++) {
+                const colOffset = i - 2.5;
+                colZDepths.push(baseZ + (colOffset * colOffset) * 0.42);
+            }
+
+            // Reference depth (columns 2 and 3)
+            const refZ = colZDepths[2];  // 3.125
+
+            // Build X positions from center outward, keeping columns 2 and 3 fixed
+            const colXPositions = [0, 0, -1.7, 1.7, 0, 0];  // Center columns fixed
+
+            // Column 1 (left of center) - gentler scaling
+            const depthDiff1 = colZDepths[1] - refZ;
+            const gap12 = referenceGap - (depthDiff1 * 0.3);
+            colXPositions[1] = colXPositions[2] - gap12;
+
+            // Column 0 (outer left) - gentler scaling
+            const depthDiff0 = colZDepths[0] - refZ;
+            const gap01 = referenceGap - (depthDiff0 * 0.3);
+            colXPositions[0] = colXPositions[1] - gap01;
+
+            // Column 4 (right of center) - gentler scaling
+            const depthDiff4 = colZDepths[4] - refZ;
+            const gap34 = referenceGap - (depthDiff4 * 0.3);
+            colXPositions[4] = colXPositions[3] + gap34;
+
+            // Column 5 (outer right) - gentler scaling
+            const depthDiff5 = colZDepths[5] - refZ;
+            const gap45 = referenceGap - (depthDiff5 * 0.3);
+            colXPositions[5] = colXPositions[4] + gap45;
+
+            articles.forEach((article, index) => {
+                const col = index % 6;
+                const row = Math.floor(index / 6);
+
+                const x = colXPositions[col];
+                const y = startY - row * gridSpacingY;
+                const z = colZDepths[col];
+
+                // Angle panels toward camera
+                const colOffset = col - 2.5;
+                const angleY = -colOffset * 0.25;
+
+                const imgPanel = createImagePanel(article.img, 3.2, 3.2, x, y, z, article.url);
+                imgPanel.panel.rotation.y = angleY;
+                imgPanel.panel.renderOrder = 1;
+                writingGroup.add(imgPanel.panel);
+
+                if (imgPanel.hitbox) {
+                    imgPanel.hitbox.rotation.y = angleY;
+                    imgPanel.hitbox.userData.articleTitle = article.title;
+                    imgPanel.hitbox.userData.articleDesc = article.desc;
+                    imgPanel.hitbox.userData.hoverOpacity = 0;
+                    writingGroup.add(imgPanel.hitbox);
+                    interactiveObjects.push(imgPanel.hitbox);
+                }
+
+                const hoverPanel = createArticlePanel(article.title, article.desc, 3.2, 3.2, x, y, z);
+                hoverPanel.bgPanel.rotation.y = angleY;
+                hoverPanel.textGroup.rotation.y = angleY;
+                hoverPanel.bgPanel.material.opacity = 0;
+                hoverPanel.bgPanel.visible = false;
+                hoverPanel.textGroup.visible = false;
+                hoverPanel.bgPanel.renderOrder = 2;
+                hoverPanel.textGroup.children.forEach(child => {
+                    child.renderOrder = 3;
+                });
+                writingGroup.add(hoverPanel.bgPanel);
+                writingGroup.add(hoverPanel.textGroup);
+                imgPanel.hitbox.userData.hoverPanel = hoverPanel.bgPanel;
+                imgPanel.hitbox.userData.hoverTextGroup = hoverPanel.textGroup;
+            });
+
+            writingGroup.visible = false;
+
+            // Qualifications area - BIGGER, no About Me
+            qualificationsGroup = new THREE.Group();
+            qualificationsGroup.position.set(0, 0, -35);
+            scene.add(qualificationsGroup);
+
+            const qualTitle = create3DText('QUALIFICATIONS', 0, 7, 0, 0xf5a157, 1, false);
+            if (qualTitle) {
+                qualificationsGroup.add(qualTitle.textMesh);
+                qualTitle.textMesh.updateMatrixWorld();
+                qualTitle.textMesh.lookAt(cameraPositions.qualifications.pos);
+            }
+
+            // Technical Skills - BIGGER
+            const skillsTitle = create3DText('Technical Skills', -4.5, 5.5, 0, 0xffb87a, 0.5, false);
+            if (skillsTitle) {
+                qualificationsGroup.add(skillsTitle.textMesh);
+                skillsTitle.textMesh.updateMatrixWorld();
+                skillsTitle.textMesh.lookAt(cameraPositions.qualifications.pos);
+            }
+
+            const skillsText = createTextPanel(
+                "Python, Java/JS, C/C#/C++, HTML, CSS, Haskell, Assembly, Machine Learning, Data Visualization, Circuit Design",
+                7, 2, -4.5, 4, 0, 0x2a3a2a, 0xffffff, 0.18
+            );
+            if (skillsText.bgPanel) {
+                qualificationsGroup.add(skillsText.bgPanel);
+                skillsText.bgPanel.lookAt(cameraPositions.qualifications.pos);
+            }
+            if (skillsText.textGroup) {
+                qualificationsGroup.add(skillsText.textGroup);
+                skillsText.textGroup.children.forEach(child => {
+                    child.lookAt(cameraPositions.qualifications.pos);
+                });
+            }
+
+            // Resume - BIGGER
+            const resumeTitle = create3DText('Resume', 4.5, 5.5, 0, 0xffb87a, 0.5, false);
+            if (resumeTitle) {
+                qualificationsGroup.add(resumeTitle.textMesh);
+                resumeTitle.textMesh.updateMatrixWorld();
+                resumeTitle.textMesh.lookAt(cameraPositions.qualifications.pos);
+            }
+
+            const resumePanel = createImagePanel('pics/27May_Brooks_Nathan_August25.png', 5, 6.5, 4.5, 3, 0, 'pics/27May_Brooks_Nathan_August25.pdf');
+            qualificationsGroup.add(resumePanel.panel);
+            resumePanel.panel.lookAt(cameraPositions.qualifications.pos);
+            if (resumePanel.hitbox) {
+                qualificationsGroup.add(resumePanel.hitbox);
+                resumePanel.hitbox.lookAt(cameraPositions.qualifications.pos);
+                interactiveObjects.push(resumePanel.hitbox);
+            }
+
+            qualificationsGroup.visible = false;
+
+            // About Me area - NEW SEPARATE PAGE
+            aboutMeGroup = new THREE.Group();
+            aboutMeGroup.position.set(0, 0, 15);
+            scene.add(aboutMeGroup);
+
+            const aboutMainTitle = create3DText('ABOUT ME', 0, 7, 0, 0xffb87a, 1.1, false);
+            if (aboutMainTitle) {
+                aboutMeGroup.add(aboutMainTitle.textMesh);
+                aboutMainTitle.textMesh.updateMatrixWorld();
+                aboutMainTitle.textMesh.lookAt(cameraPositions.aboutme.pos);
+            }
+
+            // About Me photos - 1384x960 aspect ratio (1.44:1 landscape)
+            const aboutPhoto1 = createImagePanel('pics/model.png', 4.3, 3.0, -4, 4.5, 0);
+            aboutMeGroup.add(aboutPhoto1.panel);
+            aboutPhoto1.panel.lookAt(cameraPositions.aboutme.pos);
+
+            const aboutPhoto2 = createImagePanel('pics/jumping.png', 4.3, 3.0, 4, 4.5, 0);
+            aboutMeGroup.add(aboutPhoto2.panel);
+            aboutPhoto2.panel.lookAt(cameraPositions.aboutme.pos);
+
+            // About Me text - BIGGER
+            const aboutMeText = createTextPanel(
+                "Howdy and welcome! I'm Nathan, a computer science student and quantitative finance master's candidate at Texas A&M. I have many disparate passions, and I hope this website can serve as a way to categorize and display them.",
+                10, 2.5, 0, 2, 0, 0x3a2a1a, 0xffffff, 0.16
+            );
+            if (aboutMeText.bgPanel) {
+                aboutMeGroup.add(aboutMeText.bgPanel);
+                aboutMeText.bgPanel.lookAt(cameraPositions.aboutme.pos);
+            }
+            if (aboutMeText.textGroup) {
+                aboutMeGroup.add(aboutMeText.textGroup);
+                aboutMeText.textGroup.children.forEach(child => {
+                    child.lookAt(cameraPositions.aboutme.pos);
+                });
+            }
+
+            aboutMeGroup.visible = false;
+
+            // Ensure initial state is hub - all groups hidden
+            projectsGroup.visible = false;
+            writingGroup.visible = false;
+            qualificationsGroup.visible = false;
+            aboutMeGroup.visible = false;
+        }
+
+        // Add flowers - reduced for performance
+        function addFlowers() {
+            for (let i = 0; i < 20; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 8 + Math.random() * 60;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+
+                const flower = createFlower();
+                flower.position.set(x, 0, z);
+                scene.add(flower);
+            }
+        }
+
+        function createFlower() {
+            const group = new THREE.Group();
+
+            const stemGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.6);
+            const stemMaterial = new THREE.MeshStandardMaterial({ color: 0x2d5016 });
+            const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+            stem.position.y = 0.3;
+            group.add(stem);
+
+            const flowerGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+            const colors = [0xff69b4, 0xffff00, 0xff6347, 0xee82ee, 0xffa500];
+            const flowerMaterial = new THREE.MeshStandardMaterial({
+                color: colors[Math.floor(Math.random() * colors.length)]
+            });
+            const flower = new THREE.Mesh(flowerGeometry, flowerMaterial);
+            flower.position.y = 0.6;
+            group.add(flower);
+
+            return group;
+        }
+
+        function addTrees() {
+            // Define clearing positions (where trees should NOT be)
+            const clearings = [
+                // Hub area - camera at (0, 2.5, 12) looking at (0, 2, 0)
+                { x: 0, z: 12, radius: 5 },        // Camera position
+                { x: 0, z: 6, radius: 8 },         // Content area
+
+                // Projects area - camera at (-18, 2.5, 0) looking at (-18, 2, -10)
+                { x: -18, z: 0, radius: 5 },       // Camera position
+                { x: -18, z: -10, radius: 9 },     // Content area (wider for side panels)
+
+                // Writing area - camera at (18, 2.5, 0) looking at (18, 2, -10)
+                { x: 18, z: 0, radius: 5 },        // Camera position
+                { x: 18, z: -10, radius: 9 },      // Content area (wider for side panels)
+
+                // Qualifications area - camera at (0, 2.5, -25) looking at (0, 2, -35)
+                { x: 0, z: -25, radius: 5 },       // Camera position
+                { x: 0, z: -35, radius: 8 },       // Content area
+
+                // About Me area - camera at (0, 2.5, 25) looking at (0, 2, 15)
+                { x: 0, z: 25, radius: 5 },        // Camera position
+                { x: 0, z: 15, radius: 7 }         // Content area
+            ];
+
+            // Check if a position is in any clearing
+            function isInClearing(x, z) {
+                return clearings.some(clearing => {
+                    const dx = x - clearing.x;
+                    const dz = z - clearing.z;
+                    const dist = Math.sqrt(dx * dx + dz * dz);
+                    return dist < clearing.radius;
+                });
+            }
+
+            // Create shared geometries and materials (huge performance boost)
+            const trunkGeometry = new THREE.CylinderGeometry(0.15, 0.2, 5, 6);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2817 });
+
+            // Merge all cones into single geometry
+            const foliageMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1a4d2e,
+                flatShading: true  // Better performance
+            });
+
+            // Pre-create merged foliage geometry
+            const mergedFoliageGeometry = new THREE.BufferGeometry();
+            const cone1Geo = new THREE.ConeGeometry(1.8, 2.8, 6);
+            const cone2Geo = new THREE.ConeGeometry(1.4, 2.2, 6);
+            const cone3Geo = new THREE.ConeGeometry(1.0, 1.6, 6);
+            const cone4Geo = new THREE.ConeGeometry(0.6, 1.0, 6);
+
+            // Position cones
+            cone1Geo.translate(0, 4.4, 0);
+            cone2Geo.translate(0, 5.5, 0);
+            cone3Geo.translate(0, 6.3, 0);
+            cone4Geo.translate(0, 7.0, 0);
+
+            // Merge geometries
+            const geometries = [cone1Geo, cone2Geo, cone3Geo, cone4Geo];
+            const mergedGeometry = new THREE.BufferGeometry();
+
+            let totalVertices = 0;
+            let totalIndices = 0;
+            geometries.forEach(geo => {
+                totalVertices += geo.attributes.position.count;
+                totalIndices += geo.index ? geo.index.count : 0;
+            });
+
+            const positions = new Float32Array(totalVertices * 3);
+            const normals = new Float32Array(totalVertices * 3);
+            const indices = new Uint16Array(totalIndices);
+
+            let vertexOffset = 0;
+            let indexOffset = 0;
+            let indexBase = 0;
+
+            geometries.forEach(geo => {
+                const posAttr = geo.attributes.position;
+                const normAttr = geo.attributes.normal;
+
+                for (let i = 0; i < posAttr.count; i++) {
+                    positions[vertexOffset * 3] = posAttr.getX(i);
+                    positions[vertexOffset * 3 + 1] = posAttr.getY(i);
+                    positions[vertexOffset * 3 + 2] = posAttr.getZ(i);
+                    normals[vertexOffset * 3] = normAttr.getX(i);
+                    normals[vertexOffset * 3 + 1] = normAttr.getY(i);
+                    normals[vertexOffset * 3 + 2] = normAttr.getZ(i);
+                    vertexOffset++;
+                }
+
+                if (geo.index) {
+                    for (let i = 0; i < geo.index.count; i++) {
+                        indices[indexOffset++] = geo.index.array[i] + indexBase;
+                    }
+                }
+                indexBase = vertexOffset;
+            });
+
+            mergedGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            mergedGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
+            // Dense forest - grid placement with randomization
+            const gridSpacing = 4;
+            const gridSize = 60;
+            for (let x = -gridSize; x <= gridSize; x += gridSpacing) {
+                for (let z = -gridSize; z <= gridSize; z += gridSpacing) {
+                    // Add random offset to make less grid-like
+                    const xPos = x + (Math.random() - 0.5) * gridSpacing * 0.8;
+                    const zPos = z + (Math.random() - 0.5) * gridSpacing * 0.8;
+
+                    // Skip if in a clearing
+                    if (!isInClearing(xPos, zPos)) {
+                        const tree = new THREE.Group();
+
+                        // Reuse shared geometries/materials
+                        const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                        trunk.position.y = 2.5;
+                        tree.add(trunk);
+
+                        const foliage = new THREE.Mesh(mergedGeometry, foliageMaterial);
+                        tree.add(foliage);
+
+                        tree.position.set(xPos, 0, zPos);
+                        tree.rotation.y = Math.random() * Math.PI * 2;
+                        scene.add(tree);
+                    }
+                }
+            }
+        }
+
+        addFlowers();
+        addTrees();
+
+        // Raycasting
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Hover state tracking for smooth transitions
+        const hoverStates = new Map();
+
+        document.addEventListener('mousemove', (event) => {
+            if (!font) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactiveObjects, false);
+
+            // Mark all as not hovered
+            hoverStates.forEach((state, obj) => {
+                state.isHovered = false;
+            });
+
+            if (intersects.length > 0) {
+                hoveredObject = intersects[0].object;
+
+                // Initialize hover state if needed
+                if (!hoverStates.has(hoveredObject)) {
+                    hoverStates.set(hoveredObject, {
+                        isHovered: false,
+                        targetIntensity: 0.5,
+                        currentIntensity: 0.5
+                    });
+                }
+
+                hoverStates.get(hoveredObject).isHovered = true;
+                document.body.style.cursor = 'pointer';
+            } else {
+                hoveredObject = null;
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        window.addEventListener('click', (event) => {
+            if (!font) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactiveObjects, false);
+
+            if (intersects.length > 0) {
+                const clicked = intersects[0].object;
+                if (clicked.userData.type === 'externallink') {
+                    window.open(clicked.userData.url, '_blank');
+                } else {
+                    handleClick(clicked.userData.type);
+                }
+            }
+        });
+
+        function transitionToLocation(locationName) {
+            if (locationName === currentLocation || isTransitioning) return;
+
+            if (locationName === 'github') {
+                window.open('https://github.com/nthnbrks', '_blank');
+                return;
+            }
+            if (locationName === 'linkedin') {
+                window.open('https://www.linkedin.com/in/nthnbrks/', '_blank');
+                return;
+            }
+
+            if (locationName === 'backtohub') {
+                locationName = 'hub';
+            }
+
+            isTransitioning = true;
+            const targetPos = cameraPositions[locationName];
+            const startPos = camera.position.clone();
+
+            // Show/hide content
+            if (locationName === 'hub') {
+                if (projectsGroup) projectsGroup.visible = false;
+                if (writingGroup) writingGroup.visible = false;
+                if (qualificationsGroup) qualificationsGroup.visible = false;
+                if (aboutMeGroup) aboutMeGroup.visible = false;
+            } else if (locationName === 'projects') {
+                if (projectsGroup) projectsGroup.visible = true;
+                if (writingGroup) writingGroup.visible = false;
+                if (qualificationsGroup) qualificationsGroup.visible = false;
+                if (aboutMeGroup) aboutMeGroup.visible = false;
+            } else if (locationName === 'writing') {
+                if (projectsGroup) projectsGroup.visible = false;
+                if (writingGroup) writingGroup.visible = true;
+                if (qualificationsGroup) qualificationsGroup.visible = false;
+                if (aboutMeGroup) aboutMeGroup.visible = false;
+            } else if (locationName === 'qualifications') {
+                if (projectsGroup) projectsGroup.visible = false;
+                if (writingGroup) writingGroup.visible = false;
+                if (qualificationsGroup) qualificationsGroup.visible = true;
+                if (aboutMeGroup) aboutMeGroup.visible = false;
+            } else if (locationName === 'aboutme') {
+                if (projectsGroup) projectsGroup.visible = false;
+                if (writingGroup) writingGroup.visible = false;
+                if (qualificationsGroup) qualificationsGroup.visible = false;
+                if (aboutMeGroup) aboutMeGroup.visible = true;
+            }
+
+            let progress = 0;
+            const duration = 2000;
+            const startTime = Date.now();
+
+            function animateTransition() {
+                const elapsed = Date.now() - startTime;
+                progress = Math.min(elapsed / duration, 1);
+
+                const eased = progress < 0.5
+                    ? 4 * progress * progress * progress
+                    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+                camera.position.lerpVectors(startPos, targetPos.pos, eased);
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateTransition);
+                } else {
+                    isTransitioning = false;
+                    currentLocation = locationName;
+                    updateBackButtonPosition();
+                }
+            }
+
+            animateTransition();
+        }
+
+        function handleClick(type) {
+            transitionToLocation(type);
+        }
+
+        // FPS tracking
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        const fpsCounter = document.getElementById('fps-counter');
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Calculate FPS
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime >= lastTime + 1000) {
+                fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                frameCount = 0;
+                lastTime = currentTime;
+                if (fpsCounter) {
+                    fpsCounter.textContent = `FPS: ${fps}`;
+                    // Color code: green >= 55, yellow >= 30, red < 30
+                    if (fps >= 55) {
+                        fpsCounter.style.color = '#00ff00';
+                    } else if (fps >= 30) {
+                        fpsCounter.style.color = '#ffff00';
+                    } else {
+                        fpsCounter.style.color = '#ff0000';
+                    }
+                }
+            }
+
+            const time = Date.now() * 0.001;
+
+            // Always allow mouse look
+            currentRotation.x += (targetRotation.x - currentRotation.x) * 0.1;
+            currentRotation.y += (targetRotation.y - currentRotation.y) * 0.1;
+
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = currentRotation.y;
+            camera.rotation.x = currentRotation.x;
+
+            // Animate grass with wind
+            grassBladesGroup.children.forEach(blade => {
+                const windX = Math.sin(time * blade.userData.windSpeed + blade.userData.windPhase) * 0.15;
+                const windZ = Math.cos(time * blade.userData.windSpeed * 0.7 + blade.userData.windPhase) * 0.1;
+                blade.rotation.x = blade.userData.baseRotation.x + windX;
+                blade.rotation.z = blade.userData.baseRotation.z + windZ;
+            });
+
+            // Animate clouds
+            clouds.forEach(cloud => {
+                cloud.position.x += cloud.userData.speed;
+                if (cloud.position.x > 60) {
+                    cloud.position.x = -60;
+                }
+            });
+
+            // Float text and hitboxes together + smooth hover effects
+            interactiveObjects.forEach(obj => {
+                if (obj.userData.baseY !== undefined && obj.userData.textMesh) {
+                    const floatAmount = Math.sin(time + obj.userData.floatOffset) * 0.08;
+                    const newY = obj.userData.baseY + floatAmount;
+                    obj.userData.textMesh.position.y = newY;
+                    obj.position.y = newY;
+                }
+            });
+
+            // Smooth hover effect transitions
+            hoverStates.forEach((state, obj) => {
+                // Set target based on hover state
+                state.targetIntensity = state.isHovered ? 1.2 : 0.5;
+
+                // Smooth interpolation
+                state.currentIntensity += (state.targetIntensity - state.currentIntensity) * 0.15;
+
+                // Apply to text mesh
+                const textMesh = obj.userData.textMesh;
+                if (textMesh && textMesh.material) {
+                    if (Array.isArray(textMesh.material)) {
+                        textMesh.material[0].emissiveIntensity = state.currentIntensity;
+                    } else {
+                        textMesh.material.emissiveIntensity = state.currentIntensity;
+                    }
+                }
+
+                // Apply to panel (but not to image panels which have emissiveIntensity 0)
+                const panel = obj.userData.panel;
+                if (panel && panel.material && panel.material.emissive) {
+                    // Only apply hover effect if the panel originally had emissive properties
+                    const originalEmissive = panel.material.emissive;
+                    if (originalEmissive.r !== 0 || originalEmissive.g !== 0 || originalEmissive.b !== 0) {
+                        panel.material.emissiveIntensity = state.currentIntensity * 0.6;
+                    }
+                }
+
+                // Smooth fade for hover panels
+                if (obj.userData.hoverPanel) {
+                    if (obj.userData.hoverOpacity === undefined) obj.userData.hoverOpacity = 0;
+
+                    const target = state.isHovered ? 0.8 : 0;
+                    obj.userData.hoverOpacity += (target - obj.userData.hoverOpacity) * 0.2;
+
+                    const visible = obj.userData.hoverOpacity > 0.01;
+                    obj.userData.hoverPanel.material.opacity = obj.userData.hoverOpacity;
+                    obj.userData.hoverPanel.visible = visible;
+
+                    if (obj.userData.hoverTextGroup) {
+                        obj.userData.hoverTextGroup.visible = visible;
+                        // Fade text opacity with panel
+                        obj.userData.hoverTextGroup.children.forEach(textMesh => {
+                            if (textMesh.material) {
+                                textMesh.material.opacity = obj.userData.hoverOpacity;
+                            }
+                        });
+                    }
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        setTimeout(() => {
+            document.getElementById('loading').style.display = 'none';
+        }, 2000);
+
+        animate();
+    </script>
+</body>
+</html>

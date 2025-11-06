@@ -1,0 +1,280 @@
+/*colors*/
+html{
+    --maincolor: #333333;
+    --secondcolor: #4a4a4a;
+    --thirdcolor: #727272;
+    --textmaincolor: #ffffff;
+    --uilcurrenttextcolor: #000000;
+}
+
+/*menu*/
+ul.menu{
+    position: sticky;
+    justify-content: center;
+    margin: 0;
+    top: 0;
+    left: 100%;
+    right: 0;
+    display: inline-block;
+    list-style-type: none;
+    font-size: 3vmin;
+    background-color: var(--secondcolor);
+    padding: .5%;
+    opacity: 90%;
+    border-style: solid;    
+    border-bottom-width: 2px;
+    border-top-width: 0;
+    border-left-width: 2px;
+    border-right-width: 0;
+    z-index: 1;
+    border-color: #000000;
+}
+
+.menu li a{
+    border-radius: 6px;
+    color: var(--textmaincolor);
+    display: flex;
+    text-decoration: none;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding: 1vmin;
+    font-weight: bolder;
+    transform: scale(.85);
+    transition: .4s;
+}
+
+.menu li a:hover{
+    background-color: var(--thirdcolor);
+    color: var(--uilcurrenttextcolor);
+    transform: scale(1);
+    transition: .4s;
+}
+.current{
+    background-color: var(--thirdcolor);
+    color: var(--uilcurrenttextcolor) !important; 
+    scale: 1;
+}
+
+/*top right menu buttons*/
+.buttons{
+    position: fixed;
+    display: flex;
+    align-items: center;
+    right: 10px;
+    z-index: 1;
+}
+
+.style-switch{
+    position: relative;
+    cursor: pointer;
+    background-color: var(--secondcolor);
+    color: var(--textmaincolor);
+    display: inline-block;
+    width: 6vmin;
+    height: 4vmin;
+    justify-content: center;
+    border-radius: 6px;
+    border-width: 1px;
+    font-size: 1.3vmin;
+    padding:0;
+    margin-right:.5vmin;
+}
+
+.icons{
+    width: 35px;
+    margin: .5vmin;
+    filter: invert(1);
+}
+
+/*headings*/
+.index-heading{
+    margin-top: -47vmin;
+    background-image: url(pics/indexcat.png);
+    padding-bottom: 100px;
+    background-repeat: no-repeat;
+    background-size: 120vmin;
+    background-position: center;
+}
+
+.projects-heading{
+    margin-top: -50vmin;
+    background-image: url(pics/technicalcat.png);
+    padding-bottom: 100px;
+    background-repeat: no-repeat;
+    background-size: 110vmin;
+    background-position: center;
+}
+
+.writing-heading{
+    margin-top: -50vmin;
+    background-image: url(pics/writingcat.png);
+    padding-bottom: 70px;
+    background-repeat: no-repeat;
+    background-size: 110vmin;
+    background-position: center;
+}
+
+.qualifications-heading{
+    margin-top: -50vmin;
+    background-image: url(pics/qualifiedcat.png);
+    padding-bottom: 50px;
+    background-repeat: no-repeat;
+    background-size: 110vmin;
+    background-position: center;
+}
+
+.service-heading{
+    margin-top: -50vmin;
+    background-image: url(pics/servicecat.png);
+    padding-bottom: 80px;
+    background-repeat: no-repeat;
+    background-size: 110vmin;
+    background-position: center;
+}
+
+.AI-heading{
+    margin-top: -50vmin;
+    background-image: url(pics/AIcat.png);
+    padding-bottom: 50px;
+    background-repeat: no-repeat;
+    background-size: 110vmin;
+    background-position: center;
+}
+
+.article-heading{
+    margin-top: -50vmin;
+    padding-bottom: 75px;
+}
+
+/*cover pictures*/
+.cover-pics-frame{
+    display: flex;
+    flex-direction: column;
+    margin-left: 5vmin; 
+    margin-top: -10vmin;
+}
+
+.cover-pic-1,.cover-pic-2{
+    transform: scale(1);
+    transition: .4s;
+    width: 60vmin;
+    margin: 3vmin;
+}
+
+.cover-pic-1{
+    content: url(pics/drum.png);
+}
+
+.cover-pic-2{
+    content: url(pics/mygirl.png);
+}
+.cover-pic-1:hover, .cover-pic-2:hover{
+    transform: scale(1.25);
+    transition: .4s;
+}
+
+.about-me{
+    float:right;
+    width: 50%;
+    margin-right: 12vmin;
+    padding: 20px;   
+    background-color: var(--secondcolor);
+    margin-top: -80vmin;
+    border-radius: 20px;
+}
+/*projects content*/
+.projectlist{
+    display: flex;
+    flex-direction: row;
+}
+
+/*writing portfolio content*/
+.Print_pics,.Online_pics{
+    display: flex;
+    width: 20vw;
+    float: right;
+    margin-right: 10px;
+}
+
+.print_articles, .online_articles{
+    overflow: hidden;
+    padding: .5vw;
+    margin: 1vw;
+    width: 50%;
+    border-radius: 20px; 
+    border-style: outset;
+    border-width: 4px;
+    background-color: var(--thirdcolor);
+    transform: scale(1);
+    transition: .4s;
+    text-align: left;
+    border-color: #000000;
+}
+
+.online_row, .print_list{
+    display: flex;
+    padding: 10px;
+    margin: 0px;
+}
+
+.print_articles:hover,.online_articles:hover{
+    transform: scale(1.1);
+    transition: .4s;
+}
+
+/*article pages pictures*/
+.articlepics-row{
+    display: flex;
+}
+
+.articlepics{
+    align-self: stretch;
+    overflow: hidden;
+}
+
+/*resume*/
+.resumedownload a{
+    display: inline-block;
+    color: var(--textmaincolor);
+    text-decoration: none;
+    margin-left: 50px;
+    background-color: var(--secondcolor);
+    border-radius: 6px;
+    justify-content: center;
+    padding: 12px;
+    scale: .7;
+}
+
+.resume{
+    width: 95vmin;
+}
+
+/*general content*/
+.projects,.print,.online,.services,.mywriting,.article{
+    padding: 20px;   
+    background-color: var(--secondcolor);
+    margin: 5vmin;
+    border-radius: 20px;
+}
+
+h1{
+    font-size: 15vmin;
+    padding-top: 120px;
+    font-weight:600;
+    text-align: center;
+}
+
+h2{
+    font-size: 5vmin;
+    text-align: center;
+}
+
+body{
+    background-color: var(--maincolor);
+    justify-content: flex-start;
+    font-size: 20px;
+    color: var(--textmaincolor);
+    font-family: 'Trebuchet MS';
+    margin: 0;
+}
